@@ -85,9 +85,7 @@ class Schedule:
 
         self._tasks = tasks
         if len(tasks) > 0: # if any task failed to complete, reschedule them
-            timer = SingleShotTimer()
-            timer.start(10, self.onTimer)
-            self._timer = timer
+            self._schedule(10)
 
 def main():
     import argparse    
