@@ -132,7 +132,7 @@ def main():
             else:
                 print("{} not a file not a dir".format(args.dst))
                 return
-        elif os.path.isdir(args.src)
+        elif os.path.isdir(args.src):
             if os.path.isfile(args.dst):
                 pass
             elif os.path.isdir(args.dst):
