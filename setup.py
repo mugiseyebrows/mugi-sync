@@ -12,7 +12,7 @@ setup(
     url='https://github.com/mugiseyebrows/mugi-sync',
     description='File synchronization utility',
     long_description = long_description,
-    install_requires = ['eventloop'],
+    install_requires = ['eventloop','colorama'],
     entry_points={
         'console_scripts': [
             'mugi-sync = mugisync:main'
