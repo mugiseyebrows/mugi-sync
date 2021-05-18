@@ -6,7 +6,7 @@ with open('README.rst', encoding='utf-8') as f:
 setup(
     packages = find_packages(),
     name = 'mugisync',
-    version='0.0.3',
+    version='0.0.4',
     author="Stanislav Doronin",
     author_email="mugisbrows@gmail.com",
     url='https://github.com/mugiseyebrows/mugi-sync',
