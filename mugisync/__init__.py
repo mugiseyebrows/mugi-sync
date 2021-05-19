@@ -1,4 +1,5 @@
-from eventloop import EventLoop, FileSystemWatch, Timer, SingleShotTimer, walk
+from eventloop import EventLoop, FileSystemWatch, Timer, SingleShotTimer, walk, Schedule
+import eventloop.base
 from colorama import Fore, Back, Style, init as colorama_init
 import os
 import shutil
@@ -7,9 +8,10 @@ import datetime
 def now_str():
     return datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-class Logger:
+class Logger(eventloop.base.Logger):
 
     def __init__(self, src, dst, short):
+        super().__init__()
         self._src = src
         self._dst = dst
         self._short = short
@@ -47,7 +49,7 @@ def remove_dst(src, dst, logger):
         os.remove(dst)
     except Exception as e:
         logger.print_error("Failed to remove {}".format(dst))
-        logger.print_error(e)
+        print(e)
         return False
     return True
 
@@ -56,63 +58,27 @@ def copy_to_dst(src, dst, logger):
         shutil.copy(src, dst)
     except Exception as e:
         logger.print_error("Failed to copy {} -> {}".format(src, dst))
-        logger.print_error(e)
+        print(e)
         return False
     return True
 
-class Schedule:
+class Executor(eventloop.base.Executor):
+
     def __init__(self, logger):
-        self._timer = None
-        self._tasks = []
+        super().__init__()
         self._logger = logger
-        
-    def append(self, src, dst, timeout, deduplicate = True):
-        if isinstance(src, list):
-            srcs = src
-            dsts = dst
-        else:
-            srcs = [src]
-            dsts = [dst]
-        for (src, dst) in zip(srcs, dsts):
-            add = True
-            if deduplicate:
-                for (src_, dst_) in self._tasks:
-                    if src_ == src:
-                        add = False
-            if add:
-                self._tasks.append((src, dst))
-        self._schedule(timeout)
 
-    def _schedule(self, timeout):
-        timer = self._timer
-        if timer:
-            timer.stop()
-        timer = SingleShotTimer()
-        timer.start(timeout, self.onTimer)
-        self._timer = timer
-
-    def onTimer(self):
-        self._timer = None
-
+    def execute(self, task):
+        src, dst = task
         logger = self._logger
-
-        tasks = []
-
-        for (src, dst) in self._tasks:
-            if not os.path.isfile(src):
-                continue
-            ok = create_dir(src, dst, logger)
-            ok = ok and remove_dst(src, dst, logger)
-            ok = ok and copy_to_dst(src, dst, logger)
-            if not ok:
-                logger.print_info("Rescheduling {}".format(src))
-                tasks.append((src, dst))
-            else:
-                logger.print_copied(src, dst)
-
-        self._tasks = tasks
-        if len(tasks) > 0: # if any task failed to complete, reschedule them
-            self._schedule(10)
+        ok = create_dir(src, dst, logger)
+        ok = ok and remove_dst(src, dst, logger)
+        ok = ok and copy_to_dst(src, dst, logger)
+        if ok:
+            logger.print_copied(src, dst)
+        else:
+            logger.print_info("Rescheduling {}".format(src))
+        return ok
 
 def main():
     import argparse
@@ -152,7 +118,9 @@ def main():
         parser.print_help()
         return
 
-    schedule = Schedule(logger)
+    executor = Executor(logger)
+
+    schedule = Schedule(executor)
 
     def dst_path(path):
         dst = None
@@ -177,15 +145,14 @@ def main():
             return
         return dst
 
-    def onChange(path, event):
+    def on_change(path, event):
         src = path
         dst = dst_path(src)
-        schedule.append(src, dst, 1)
+        schedule.append((src, dst), 1)
 
     def initial_sync():
-        dirs, files = walk(args.src, args.include, args.exclude)
-        srcs = []
-        dsts = []
+        _, files = walk(args.src, args.include, args.exclude)
+        tasks = []
         for src in files:
             dst = dst_path(src)
             if not os.path.exists(dst):
@@ -195,10 +162,9 @@ def main():
                 m2 = os.path.getmtime(dst)
                 add = m2 <= m1
             if add:
-                srcs.append(src)
-                dsts.append(dst)
-        if len(srcs) > 0:
-            schedule.append(srcs, dsts, 1, deduplicate=False)
+                tasks.append((src, dst))
+        if len(tasks) > 0:
+            schedule.append(tasks, 0)
             
     loop = EventLoop()
 
@@ -208,7 +174,7 @@ def main():
 
     watch = FileSystemWatch()
     logger.print_info("Watching {}".format(args.src))
-    watch.start(args.src, onChange, recursive=True, include=args.include, exclude=args.exclude)
+    watch.start(args.src, on_change, recursive=True, include=args.include, exclude=args.exclude)
     loop.start()
 
 if __name__ == "__main__":
