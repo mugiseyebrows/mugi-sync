@@ -15,7 +15,7 @@ setup(
     install_requires = ['eventloop','colorama'],
     entry_points={
         'console_scripts': [
-            'mugi-sync = mugisync:main'
+            'mugisync = mugisync:main'
         ]
     },
 )
