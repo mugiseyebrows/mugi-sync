@@ -16,9 +16,9 @@ Using
 
 ::
 
-    mugi-sync /path/to/src /path/to/dst -i "*.cpp" -e "moc_*" ".git"
-    mugi-sync /src/path/libfoo.dll /dst/path
-    mugi-sync /path/to/src /path/to/dst --no-initial-sync
+    mugisync /path/to/src /path/to/dst -i "*.cpp" -e "moc_*" ".git"
+    mugisync /src/path/libfoo.dll /dst/path
+    mugisync /path/to/src /path/to/dst --no-initial-sync
 
 Author
 ======
