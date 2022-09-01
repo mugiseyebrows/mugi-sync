@@ -177,12 +177,12 @@ def main(*main_args):
     colorama_init()
 
     example_text = """examples:
-    mugisync /path/to/src /path/to/dst -i "*.cpp" -e "moc_*" ".git"
-    mugisync /src/path/libfoo.dll /dst/path
-    mugisync /path/to/src root@192.168.0.1:/root/src
+  mugisync /path/to/src /path/to/dst -i "*.cpp" -e "moc_*" ".git"
+  mugisync /src/path/libfoo.dll /dst/path
+  mugisync /path/to/src root@192.168.0.1:/root/src
     """
 
-    parser = argparse.ArgumentParser(prog="mugi-sync", epilog=example_text, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser = argparse.ArgumentParser(prog="mugisync", epilog=example_text, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('src', help="source directory or file")
     parser.add_argument('dst', help="destination directory or file (or remote path)")
     parser.add_argument('-i','--include', nargs='+', help="include globs")

@@ -1,7 +1,7 @@
 
 # mugisync
 
-Continously syncronizes local directory with another local or shared directory (poor person's syncthing) or remote directory over ssh (poor person's one way sshfs).
+Continously syncronizes local directory with another local or shared directory (poor person's syncthing) or remote directory over ssh (poor person's one-way sshfs).
 
 ## Installing
 

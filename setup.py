@@ -10,7 +10,7 @@ setup(
     author="Stanislav Doronin",
     author_email="mugisbrows@gmail.com",
     url='https://github.com/mugiseyebrows/mugi-sync',
-    description="Continously syncronizes local directory with another local or shared directory (poor person's syncthing) or remote directory over ssh (poor person's one way sshfs)",
+    description="Continously syncronizes local directory with another local or shared directory (poor person's syncthing) or remote directory over ssh (poor person's one-way sshfs)",
     long_description = long_description,
     install_requires = ['eventloop','colorama','paramiko'],
     entry_points={
