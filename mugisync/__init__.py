@@ -4,29 +4,109 @@ from colorama import Fore, Back, Style, init as colorama_init
 import os
 import shutil
 import datetime
+from dataclasses import dataclass
+import argparse
+import re
+import paramiko
+
+@dataclass
+class MainArgs:
+    src: str
+    dst: str
+    include: list = None
+    exclude: list = None
+    short_log: bool = False
+    create: bool = False
+    no_initial_sync: bool = False
+
+@dataclass
+class SshArgs:
+    host: str
+    user: str
+    password: str
+    key: str
+    src: str
+    dst: str
 
 def now_str():
     return datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 class Logger(eventloop.base.Logger):
 
-    def __init__(self, src, dst, short):
+    def __init__(self, src, dst):
         super().__init__()
         self._src = src
         self._dst = dst
-        self._short = short
 
     def print_info(self, msg):
         print(Fore.WHITE + now_str() + " " + Fore.YELLOW + Style.BRIGHT + msg + Fore.RESET + Style.NORMAL)
+
+    def print_question(self, msg):
+        print(Fore.WHITE + Fore.MAGENTA + Style.BRIGHT + msg + Fore.RESET + Style.NORMAL + " ", end="")
 
     def print_error(self, msg):
         print(Fore.WHITE + now_str() + " " + Fore.RED + msg + Fore.RESET)
 
     def print_copied(self, src, dst):
-        if self._short:
-            print(Fore.WHITE + now_str() + " " + Fore.GREEN + Style.BRIGHT + os.path.relpath(dst, self._dst) + Fore.RESET + Style.NORMAL)
-        else:
-            print(Fore.WHITE + now_str() + " " + Fore.GREEN + Style.BRIGHT + src + Fore.WHITE + ' -> ' + Fore.GREEN + dst + Fore.RESET + Style.NORMAL)
+        print(Fore.WHITE + now_str() + " " + Fore.GREEN + Style.BRIGHT + src + Fore.WHITE + ' -> ' + Fore.GREEN + dst + Fore.RESET + Style.NORMAL)
+
+
+def unix_path_join(*args):
+    return os.path.join(*args).replace("\\","/")
+
+def count_slashes(path):
+    cnt = 0
+    for c in path:
+        if c == '/' or c == '\\':
+            cnt += 1
+    return cnt
+
+def sftp_put_files(sshArgs: SshArgs, files, logger: Logger):
+    ssh = paramiko.SSHClient()
+    ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    ssh.connect(sshArgs.host, username=sshArgs.user, password=sshArgs.password, key_filename=sshArgs.key)
+    ftp = ssh.open_sftp()
+
+    dirs = set()
+
+    for src in files:
+
+        rel = os.path.relpath(src, sshArgs.src)
+
+        dst = unix_path_join(sshArgs.dst, rel)
+
+        dirname = os.path.dirname(dst)
+        
+        while dirname != '/':
+            if dirname == '':
+                break
+            dirs.add(dirname)
+            dirname = os.path.dirname(dirname)
+
+    dirs = list(dirs)
+
+    dirs.sort(key=count_slashes)
+
+    #print("dirs", dirs); exit(0)
+
+    for d in dirs:
+        try:
+            ftp.mkdir(d)
+        except IOError as e:
+            #print(e)
+            pass
+
+    for src in files:
+        rel = os.path.relpath(src, sshArgs.src)
+        dst = unix_path_join(sshArgs.dst, rel)
+        #print("{} ftp.put {} {}".format(datetime.datetime.now(), src, dst))
+        
+        try:
+            ftp.put(src, dst)
+            logger.print_copied(src, dst)
+        except IOError as e:
+            logger.print_error(str(e))
+    ftp.close()
 
 def makedirs(path):
     try:
@@ -64,65 +144,96 @@ def copy_to_dst(src, dst, logger):
 
 class Executor(eventloop.base.Executor):
 
-    def __init__(self, logger):
+    def __init__(self, sshArgs, logger):
         super().__init__()
+        self._sshArgs = sshArgs
         self._logger = logger
 
     def execute(self, task):
         src, dst = task
+
+        if os.path.isdir(src):
+            return True
+            
+        if not os.path.exists(src):
+            return True
+
         logger = self._logger
-        ok = create_dir(src, dst, logger)
-        ok = ok and remove_dst(src, dst, logger)
-        ok = ok and copy_to_dst(src, dst, logger)
-        if ok:
-            logger.print_copied(src, dst)
+
+        if self._sshArgs:
+            sftp_put_files(self._sshArgs, [src], logger)
         else:
-            logger.print_info("Rescheduling {}".format(src))
-        return ok
+            ok = create_dir(src, dst, logger)
+            ok = ok and remove_dst(src, dst, logger)
+            ok = ok and copy_to_dst(src, dst, logger)
+            if ok:
+                logger.print_copied(src, dst)
+            else:
+                logger.print_info("Rescheduling {}".format(src))
+            return ok
 
-def main():
-    import argparse
-
+def main(*main_args):
+    
     colorama_init()
 
     example_text = """examples:
-    mugi-sync /path/to/src /path/to/dst -i "*.cpp" -e "moc_*" ".git"
-    mugi-sync /src/path/libfoo.dll /dst/path
-    mugi-sync /path/to/src /path/to/dst --no-initial-sync
+    mugisync /path/to/src /path/to/dst -i "*.cpp" -e "moc_*" ".git"
+    mugisync /src/path/libfoo.dll /dst/path
+    mugisync /path/to/src root@192.168.0.1:/root/src
     """
 
     parser = argparse.ArgumentParser(prog="mugi-sync", epilog=example_text, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument('src', help="Source directory or file")
-    parser.add_argument('dst', help="Destination directory or file")
-    parser.add_argument('--include','-i', nargs='+', help="Include globs")
-    parser.add_argument('--exclude','-e', nargs='+', help="Exclude globs")
-    parser.add_argument('--no-initial-sync', action='store_true', help="Disable initial sync")
-    parser.add_argument('--create', action='store_true', help="Create target directory")
-    parser.add_argument('--short-log', action='store_true', help="Short log")
-    args = parser.parse_args()
+    parser.add_argument('src', help="source directory or file")
+    parser.add_argument('dst', help="destination directory or file (or remote path)")
+    parser.add_argument('-i','--include', nargs='+', help="include globs")
+    parser.add_argument('-e','--exclude', nargs='+', help="exclude globs")
+    parser.add_argument('-c','--create', action='store_true', help="create target directory")
+    parser.add_argument('-p', '--password', help='ssh password')
+    parser.add_argument('-k','--key', help='path to ssh key file, defaults to ~/.ssh/id_rsa if no password provided')
 
+    if len(main_args) == 2:
+        args = MainArgs(*main_args)
+    else:
+        args = parser.parse_args()
+
+    m = re.match('(.+)@(.+):(.+)', args.dst)
+    sftp_mode = m is not None
+
+    print('sftp_mode',sftp_mode)
+
+    sshArgs = None
+    if sftp_mode:
+        if args.password is None and args.key is None:
+            key = os.path.join(os.path.expanduser('~'),'.ssh','id_rsa')
+        else:
+            key = args.key
+        user = m.group(1)
+        host = m.group(2)
+        dst = m.group(3)
+        sshArgs = SshArgs(host=host, user=user, password=args.password, key=key, src=args.src, dst=dst)
+    
     #print(args); exit(0)
 
-    logger = Logger(args.src, args.dst, args.short_log)
+    logger = Logger(args.src, args.dst)
 
-    if args.create:
+    if sshArgs is None and args.create:
         makedirs(args.dst)
         if not os.path.isdir(args.dst):
             logger.print_error("Failed to create {}".format(args.dst))
             return
 
-
-
-    if os.path.isdir(args.src) and os.path.isfile(args.dst):
+    if sshArgs is None and os.path.isdir(args.src) and os.path.isfile(args.dst):
         logger.print_error("{} is dir and {} is file, cannot syncronize dir to file".format(args.src, args.dst))
         parser.print_help()
         return
 
-    executor = Executor(logger)
+    executor = Executor(sshArgs, logger)
 
     schedule = Schedule(executor)
 
     def dst_path(path):
+        if sshArgs:
+            return None
         dst = None
         if os.path.isfile(args.src):
             if os.path.isfile(args.dst):
@@ -152,25 +263,36 @@ def main():
 
     def initial_sync():
         _, files = walk(args.src, args.include, args.exclude)
-        tasks = []
-        for src in files:
-            dst = dst_path(src)
-            if not os.path.exists(dst):
-                add = True
-            else:
-                m1 = os.path.getmtime(src)
-                m2 = os.path.getmtime(dst)
-                add = m2 <= m1
-            if add:
-                tasks.append((src, dst))
-        if len(tasks) > 0:
-            schedule.append(tasks, 0)
+        if sshArgs:
+            #files = [f for f in files if not os.path.isdir(f)]
+            logger.print_question("Push {} files from {} to {} [Y/n]?".format(len(files), args.src, args.dst))
+            ans = input()
+            if ans in ['y','Y','']:
+                sftp_put_files(sshArgs, files, logger)
+        else:
+            tasks = []
+            for src in files:
+                dst = dst_path(src)
+                if not os.path.exists(dst):
+                    add = True
+                else:
+                    m1 = os.path.getmtime(src)
+                    m2 = os.path.getmtime(dst)
+                    add = m2 <= m1
+                if add:
+                    tasks.append((src, dst))
+
+            if len(tasks) > 0:
+                logger.print_question("Push {} files from {} to {} [Y/n]?".format(len(tasks), args.src, args.dst))
+                ans = input()
+                if ans in ['y','Y','']:
+                    for task in tasks:
+                        executor.execute(task)
             
     loop = EventLoop()
 
-    if not args.no_initial_sync:
-        logger.print_info("Initial sync")
-        initial_sync()
+    logger.print_info("Initial sync")
+    initial_sync()
 
     watch = FileSystemWatch()
     logger.print_info("Watching {}".format(args.src))
