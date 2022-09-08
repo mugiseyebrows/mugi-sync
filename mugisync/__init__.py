@@ -9,6 +9,13 @@ import argparse
 import re
 import paramiko
 
+# set DEBUG_MUGISYNC=1
+# DEBUG_MUGISYNC=1
+if 'DEBUG_MUGISYNC' in os.environ and os.environ['DEBUG_MUGISYNC'] == "1":
+    debug_print = print
+else:
+    debug_print = lambda *args, **kwargs: None
+
 @dataclass
 class MainArgs:
     src: str
@@ -172,6 +179,8 @@ class Executor(eventloop.base.Executor):
                 logger.print_info("Rescheduling {}".format(src))
             return ok
 
+ALGORITHMS = ['ecdsa','ed25519','rsa','dsa']
+
 def main(*main_args):
     
     colorama_init()
@@ -188,33 +197,57 @@ def main(*main_args):
     parser.add_argument('-i','--include', nargs='+', help="include globs")
     parser.add_argument('-e','--exclude', nargs='+', help="exclude globs")
     parser.add_argument('-c','--create', action='store_true', help="create target directory")
-    parser.add_argument('-p', '--password', help='ssh password')
-    parser.add_argument('-k','--key', help='path to ssh key file, defaults to ~/.ssh/id_rsa if no password provided')
+    parser.add_argument('-P', '--password', help='ssh password')
+    parser.add_argument('-k','--key', help='path to ssh key file, if no password provided tries to find ssh key with common name in ~/.ssh')
+    parser.add_argument('-a', '--algorithm', choices=ALGORITHMS, help='ssh key algorithm')
 
     if len(main_args) == 2:
         args = MainArgs(*main_args)
     else:
         args = parser.parse_args()
+    
+    debug_print(args)
 
     m = re.match('(.+)@(.+):(.+)', args.dst)
     sftp_mode = m is not None
 
-    print('sftp_mode',sftp_mode)
+    #print('sftp_mode',sftp_mode)
+
+    logger = Logger(args.src, args.dst)
 
     sshArgs = None
+    key = None
     if sftp_mode:
-        if args.password is None and args.key is None:
-            key = os.path.join(os.path.expanduser('~'),'.ssh','id_rsa')
-        else:
+        if args.key:
             key = args.key
+            if os.path.exists(key):
+                debug_print('ssh key found {}'.format(key))
+            else:
+                logger.print_error('{} not exist'.format(key))
+                key = None
+        elif args.algorithm:
+            key = os.path.join(os.path.expanduser('~'),'.ssh','id_{}'.format(args.algorithm))
+            if os.path.exists(key):
+                debug_print('ssh key found {}'.format(key))
+            else:
+                logger.print_error('{} not exist'.format(key))
+                key = None
+        elif args.password is None:
+            for name in ALGORITHMS:
+                key = os.path.join(os.path.expanduser('~'),'.ssh','id_{}'.format(name))
+                if os.path.exists(key):
+                    debug_print('ssh key found {}'.format(key))
+                    break
+            else:
+                key = None
+                logger.print_error('no ssh key found and no password provided')
+    
         user = m.group(1)
         host = m.group(2)
         dst = m.group(3)
         sshArgs = SshArgs(host=host, user=user, password=args.password, key=key, src=args.src, dst=dst)
     
     #print(args); exit(0)
-
-    logger = Logger(args.src, args.dst)
 
     if sshArgs is None and args.create:
         makedirs(args.dst)
