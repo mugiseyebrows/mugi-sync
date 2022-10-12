@@ -327,7 +327,7 @@ def main(*main_args):
     logger.print_info("Initial sync")
     initial_sync()
 
-    watch = FileSystemWatch()
+    watch = FileSystemWatch(loop)
     logger.print_info("Watching {}".format(args.src))
     watch.start(args.src, on_change, recursive=True, include=args.include, exclude=args.exclude)
     loop.start()
