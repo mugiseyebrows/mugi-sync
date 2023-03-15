@@ -200,6 +200,7 @@ def main(*main_args):
     parser.add_argument('-P', '--password', help='ssh password')
     parser.add_argument('-k','--key', help='path to ssh key file, if no password provided tries to find ssh key with common name in ~/.ssh')
     parser.add_argument('-a', '--algorithm', choices=ALGORITHMS, help='ssh key algorithm')
+    parser.add_argument('-y', '--yes', action='store_true', help='force initial update (bypass user confirmation)')
 
     if len(main_args) == 2:
         args = MainArgs(*main_args)
@@ -297,10 +298,14 @@ def main(*main_args):
     def initial_sync():
         _, files = walk(args.src, args.include, args.exclude)
         if sshArgs:
-            #files = [f for f in files if not os.path.isdir(f)]
-            logger.print_question("Push {} files from {} to {} [Y/n]?".format(len(files), args.src, args.dst))
-            ans = input()
-            if ans in ['y','Y','']:
+            if args.yes:
+                yes = True
+            else:
+                logger.print_question("Push {} files from {} to {} [Y/n]?".format(len(files), args.src, args.dst))
+                ans = input()
+                yes = ans in ['y','Y','']
+
+            if yes:
                 sftp_put_files(sshArgs, files, logger)
         else:
             tasks = []
@@ -316,11 +321,16 @@ def main(*main_args):
                     tasks.append((src, dst))
 
             if len(tasks) > 0:
-                logger.print_question("Push {} files from {} to {} [Y/n]?".format(len(tasks), args.src, args.dst))
-                ans = input()
-                if ans in ['y','Y','']:
+                if args.yes:
+                    yes = True
+                else:
+                    logger.print_question("Push {} files from {} to {} [Y/n]?".format(len(tasks), args.src, args.dst))
+                    ans = input()
+                    yes = ans in ['y','Y','']
+                
+                if yes:
                     for task in tasks:
-                        executor.execute(task)
+                        schedule.append(task, 1)
             
     loop = EventLoop()
 
