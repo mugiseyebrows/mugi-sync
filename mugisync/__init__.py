@@ -201,6 +201,7 @@ def main(*main_args):
     parser.add_argument('-k','--key', help='path to ssh key file, if no password provided tries to find ssh key with common name in ~/.ssh')
     parser.add_argument('-a', '--algorithm', choices=ALGORITHMS, help='ssh key algorithm')
     parser.add_argument('-y', '--yes', action='store_true', help='force initial update (bypass user confirmation)')
+    parser.add_argument('--quit', '-q', action='store_true', help='do initial sync and exit')
 
     if len(main_args) == 2:
         args = MainArgs(*main_args)
@@ -337,9 +338,21 @@ def main(*main_args):
     logger.print_info("Initial sync")
     initial_sync()
 
-    watch = FileSystemWatch(loop)
-    logger.print_info("Watching {}".format(args.src))
-    watch.start(args.src, on_change, recursive=True, include=args.include, exclude=args.exclude)
+    if args.quit:
+        timer = Timer()
+        def on_timer():
+            debug_print("on_timer")
+            if len(schedule._tasks) == 0:
+                timer.stop()
+                loop.stop()
+            else:
+                debug_print("schedule has tasks")
+        timer.start(1, on_timer)
+    else:
+        watch = FileSystemWatch(loop)
+        logger.print_info("Watching {}".format(args.src))
+        watch.start(args.src, on_change, recursive=True, include=args.include, exclude=args.exclude)
+
     loop.start()
 
 if __name__ == "__main__":
