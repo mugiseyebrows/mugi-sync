@@ -8,6 +8,8 @@ from dataclasses import dataclass
 import argparse
 import re
 import paramiko
+import subprocess
+import datetime
 
 # set DEBUG_MUGISYNC=1
 # DEBUG_MUGISYNC=1
@@ -192,6 +194,40 @@ class Executor(eventloop.base.Executor):
 
 ALGORITHMS = ['ecdsa','ed25519','rsa','dsa']
 
+class SyncSchedule(Schedule):
+    def __init__(self, executor, dst, git):
+        super().__init__(executor)
+        self._dst = dst
+        self._git = git
+        if git:
+            git_exe = shutil.which('git')
+            if git_exe is None:
+                guess = "C:\\Program Files\\Git\\cmd\\git.exe"
+                if os.path.exists(guess):
+                    git_exe = guess
+            if git_exe is None:
+                raise ValueError("cannot find git, add path to git to PATH environment variable")
+            self._git_exe = git_exe
+    
+    def on_timeout(self):
+        count1 = len(self._tasks)
+        res = super().on_timeout()
+        count2 = len(self._tasks)
+        debug_print("count1, count2", count1, count2)
+        if count1 != count2 and self._git:
+            d = datetime.datetime.now()
+            cwd = self._dst
+            git_exe = self._git_exe
+            repo = os.path.join(self._dst, '.git')
+            if not os.path.isdir(repo):
+                proc = subprocess.run([git_exe, "init"], cwd=cwd)
+                debug_print(proc)
+            proc = subprocess.run([git_exe, "add", "."], cwd=cwd)
+            debug_print(proc)
+            msg = d.isoformat().split(".")[0].replace("T"," ")
+            proc = subprocess.run([git_exe, "commit", "-a", "-m", msg], cwd=cwd)
+            debug_print(proc)
+
 def main(*main_args):
     
     colorama_init()
@@ -214,6 +250,7 @@ def main(*main_args):
     parser.add_argument('-y', '--yes', action='store_true', help='force initial update (bypass user confirmation)')
     parser.add_argument('--quit', '-q', action='store_true', help='do initial sync and exit')
     parser.add_argument('-d', '--delete', action='store_true', help='delete files on delete')
+    parser.add_argument('--git', action='store_true', help='create git repository and store all changes')
 
     if len(main_args) == 2:
         args = MainArgs(*main_args)
@@ -276,7 +313,11 @@ def main(*main_args):
 
     executor = Executor(sshArgs, args.delete, logger)
 
-    schedule = Schedule(executor)
+    schedule = SyncSchedule(executor, args.dst, args.git)
+
+    if sshArgs and args.git:
+        logger.print_error("--git option is not implemented for ssh mode")
+        exit(1)
 
     def dst_path(path):
         if sshArgs:
