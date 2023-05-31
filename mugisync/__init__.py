@@ -56,7 +56,9 @@ class Logger(eventloop.base.Logger):
 
     def print_copied(self, src, dst):
         print(Fore.WHITE + now_str() + " " + Fore.GREEN + Style.BRIGHT + src + Fore.WHITE + ' -> ' + Fore.GREEN + dst + Fore.RESET + Style.NORMAL)
-
+    
+    def print_deleted(self, dst):
+        print(Fore.WHITE + now_str() + " " + Fore.GREEN + "null" + Fore.WHITE + ' -> ' + Fore.GREEN + dst + Fore.RESET + Style.NORMAL)
 
 def unix_path_join(*args):
     return os.path.join(*args).replace("\\","/")
@@ -151,21 +153,30 @@ def copy_to_dst(src, dst, logger):
 
 class Executor(eventloop.base.Executor):
 
-    def __init__(self, sshArgs, logger):
+    def __init__(self, sshArgs, delete, logger: Logger):
         super().__init__()
         self._sshArgs = sshArgs
         self._logger = logger
+        self._delete = delete
 
     def execute(self, task):
         src, dst = task
+        logger = self._logger
 
         if os.path.isdir(src):
             return True
             
         if not os.path.exists(src):
-            return True
-
-        logger = self._logger
+            if self._delete:
+                debug_print("removing {}".format(dst))
+                ok = remove_dst(src, dst, logger)
+                if ok:
+                    logger.print_deleted(dst)
+                return ok
+            else:
+                # do not reschedule
+                debug_print("src not exist {}".format(src))
+                return True
 
         if self._sshArgs:
             sftp_put_files(self._sshArgs, [src], logger)
@@ -202,6 +213,7 @@ def main(*main_args):
     parser.add_argument('-a', '--algorithm', choices=ALGORITHMS, help='ssh key algorithm')
     parser.add_argument('-y', '--yes', action='store_true', help='force initial update (bypass user confirmation)')
     parser.add_argument('--quit', '-q', action='store_true', help='do initial sync and exit')
+    parser.add_argument('-d', '--delete', action='store_true', help='delete files on delete')
 
     if len(main_args) == 2:
         args = MainArgs(*main_args)
@@ -262,7 +274,7 @@ def main(*main_args):
         parser.print_help()
         return
 
-    executor = Executor(sshArgs, logger)
+    executor = Executor(sshArgs, args.delete, logger)
 
     schedule = Schedule(executor)
 
@@ -292,6 +304,7 @@ def main(*main_args):
         return dst
 
     def on_change(path, event):
+        debug_print("on_change", path)
         src = path
         dst = dst_path(src)
         schedule.append((src, dst), 1)
