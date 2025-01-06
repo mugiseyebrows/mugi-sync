@@ -10,11 +10,12 @@ import re
 import paramiko
 import subprocess
 import datetime
+import sys
 
 # set DEBUG_MUGISYNC=1
 # DEBUG_MUGISYNC=1
-if 'DEBUG_MUGISYNC' in os.environ and os.environ['DEBUG_MUGISYNC'] == "1":
-    debug_print = print
+if os.environ.get('DEBUG_MUGISYNC') == "1":
+    debug_print = lambda *args, **kwargs: print(*args, **kwargs, file=sys.stderr)
 else:
     debug_print = lambda *args, **kwargs: None
 
@@ -80,11 +81,17 @@ def sftp_put_files(sshArgs: SshArgs, files, logger: Logger):
 
     dirs = set()
 
+    
+    base_dir = os.path.dirname(os.path.realpath(sshArgs.src))
+    
     for src in files:
-
-        rel = os.path.relpath(src, sshArgs.src)
+        rel = os.path.relpath(src, base_dir)
+        
+        debug_print("rel", rel)
 
         dst = unix_path_join(sshArgs.dst, rel)
+
+        debug_print("dst", dst)
 
         dirname = os.path.dirname(dst)
         
@@ -108,7 +115,7 @@ def sftp_put_files(sshArgs: SshArgs, files, logger: Logger):
             pass
 
     for src in files:
-        rel = os.path.relpath(src, sshArgs.src)
+        rel = os.path.relpath(src, base_dir)
         dst = unix_path_join(sshArgs.dst, rel)
         #print("{} ftp.put {} {}".format(datetime.datetime.now(), src, dst))
         
