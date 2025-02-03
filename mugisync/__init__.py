@@ -358,7 +358,10 @@ def main(*main_args):
         schedule.append((src, dst), 1)
 
     def initial_sync():
-        _, files = walk(args.src, args.include, args.exclude)
+        if os.path.isfile(args.src):
+            files = [args.src]
+        else:
+            _, files = walk(args.src, args.include, args.exclude)
         if sshArgs:
             if args.yes:
                 yes = True
